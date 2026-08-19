@@ -22,10 +22,12 @@
     <!-- bridge_mavlink configuration arguments -->
     <arg name="publish_rate" default="20.0"/>
     <arg name="use_degrees" default="false"/>
+    <arg name="odom_topic" default="/mavros/local_position/odom"/>
 
     <!-- Launch the bridge_mavlink node -->
     <node pkg="bridge_mavlink" type="bridge_mavlink_node" name="bridge_mavlink_node" output="screen">
         <param name="publish_rate" value="$(arg publish_rate)"/>
         <param name="use_degrees" value="$(arg use_degrees)"/>
+        <param name="odom_topic" value="$(arg odom_topic)"/>
     </node>
 </launch>

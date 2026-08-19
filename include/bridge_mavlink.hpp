@@ -8,6 +8,7 @@
 #include <mavros_msgs/State.h>
 #include <mutex>
 #include <string>
+#include "datum_synchronizer.hpp"
 
 class BridgeMavlink {
 public:
@@ -57,4 +58,9 @@ private:
     bool use_degrees_{false};
     double publish_rate_{20.0};
     bool fcu_connected_{false};
+    std::string odom_topic_{"/mavros/local_position/odom"};
+
+    // Datum synchronization and estimation
+    DatumSynchronizer datum_sync_;
+    std::optional<SyncedPair> last_reliable_datum_;
 };

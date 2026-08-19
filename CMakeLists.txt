@@ -20,6 +20,8 @@ find_package(catkin REQUIRED COMPONENTS
   tf2_geometry_msgs
 )
 
+find_package(Eigen3 REQUIRED)
+
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -123,11 +125,24 @@ catkin_package(
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
 )
+
+set(FETCHCONTENT_BASE_DIR ${CMAKE_SOURCE_DIR}/../.deps CACHE PATH "Directory for fetched content")
+include(FetchContent)
+
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG        v3.11.3
+  GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
 
 add_executable(bridge_mavlink_node src/bridge_mavlink_node.cpp)
 target_link_libraries(bridge_mavlink_node
   ${catkin_LIBRARIES}
+  nlohmann_json::nlohmann_json
 )
 
 #############

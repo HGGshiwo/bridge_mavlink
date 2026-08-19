@@ -3,6 +3,7 @@
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <mavros_msgs/MessageInterval.h>
 #include <mavros_msgs/StreamRate.h>
+#include <nlohmann/json.hpp>
 #include <sstream>
 #include <iomanip>
 #include <cmath>
@@ -16,6 +17,7 @@ BridgeMavlink::BridgeMavlink(ros::NodeHandle& nh, ros::NodeHandle& pnh) {
     // Read configuration parameters
     pnh.param<double>("publish_rate", publish_rate_, 20.0);
     pnh.param<bool>("use_degrees", use_degrees_, false);
+    pnh.param<std::string>("odom_topic", odom_topic_, "/mavros/local_position/odom");
 
     // Enforce valid rate
     if (publish_rate_ <= 0.0) {
@@ -25,7 +27,7 @@ BridgeMavlink::BridgeMavlink(ros::NodeHandle& nh, ros::NodeHandle& pnh) {
 
     // Subscribe directly to standard mavros state and telemetry topics
     sub_state_ = nh.subscribe("/mavros/state", 10, &BridgeMavlink::stateCallback, this);
-    sub_local_odom_ = nh.subscribe("/mavros/local_position/odom", 10, &BridgeMavlink::localOdomCallback, this);
+    sub_local_odom_ = nh.subscribe(odom_topic_, 10, &BridgeMavlink::localOdomCallback, this);
     sub_global_gps_ = nh.subscribe("/mavros/global_position/global", 10, &BridgeMavlink::globalGpsCallback, this);
     sub_gps_raw_ = nh.subscribe("/mavros/gpsstatus/gps1/raw", 10, &BridgeMavlink::gpsRawCallback, this);
 
@@ -81,6 +83,15 @@ void BridgeMavlink::localOdomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
         pitch_ = p;
         yaw_ = y;
     }
+
+    // Push to datum synchronizer
+    double time_now = msg->header.stamp.toSec();
+    datum_sync_.pushENU(Eigen::Vector3d(pos_x_, pos_y_, pos_z_), time_now);
+
+    auto opt_datum = datum_sync_.getReliableDatum();
+    if (opt_datum.has_value()) {
+        last_reliable_datum_ = opt_datum;
+    }
 }
 
 
@@ -91,6 +102,17 @@ void BridgeMavlink::globalGpsCallback(const sensor_msgs::NavSatFix::ConstPtr& ms
     lon_ = msg->longitude;
     lat_ = msg->latitude;
     alt_ = msg->altitude;
+
+    // Push to datum synchronizer if GPS fix is good
+    if (gps_fix_type_ >= 3) {
+        double time_now = msg->header.stamp.toSec();
+        datum_sync_.pushGPS(Eigen::Vector3d(lon_, lat_, alt_), time_now);
+
+        auto opt_datum = datum_sync_.getReliableDatum();
+        if (opt_datum.has_value()) {
+            last_reliable_datum_ = opt_datum;
+        }
+    }
 }
 
 void BridgeMavlink::gpsRawCallback(const mavros_msgs::GPSRAW::ConstPtr& msg) {
@@ -110,18 +132,33 @@ void BridgeMavlink::publishTimerCallback(const ros::TimerEvent& event) {
 }
 
 std::string BridgeMavlink::formatJsonString() {
-    std::ostringstream ss;
-    // Set precision to capture coordinates accurately (double has ~15 decimal digits)
-    ss << std::fixed << std::setprecision(9);
-    ss << "{\n"
-       << "  \"pos_enu\": [" << pos_x_ << ", " << pos_y_ << ", " << pos_z_ << "],\n"
-       << "  \"roll\": " << roll_ << ",\n"
-       << "  \"pitch\": " << pitch_ << ",\n"
-       << "  \"yaw\": " << yaw_ << ",\n"
-       << "  \"gps\": [" << lon_ << ", " << lat_ << ", " << alt_ << "],\n"
-       << "  \"gps_fix_type\": " << gps_fix_type_ << "\n"
-       << "}";
-    return ss.str();
+    double lon_out = lon_;
+    double lat_out = lat_;
+    double alt_out = alt_;
+
+    if (gps_fix_type_ < 3 && last_reliable_datum_.has_value()) {
+        const double R_e = 6378137.0; // WGS-84 equatorial radius
+        const double PI = 3.14159265358979323846;
+        const auto& datum = last_reliable_datum_.value();
+        
+        double lat_ref_rad = datum.gps.y() * PI / 180.0;
+        double delta_x = pos_x_ - datum.enu.x();
+        double delta_y = pos_y_ - datum.enu.y();
+        double delta_z = pos_z_ - datum.enu.z();
+
+        lat_out = datum.gps.y() + (delta_y / R_e) * (180.0 / PI);
+        lon_out = datum.gps.x() + (delta_x / (R_e * std::cos(lat_ref_rad))) * (180.0 / PI);
+        alt_out = datum.gps.z() + delta_z;
+    }
+
+    nlohmann::json j;
+    j["pos_enu"] = {pos_x_, pos_y_, pos_z_};
+    j["roll"] = roll_;
+    j["pitch"] = pitch_;
+    j["yaw"] = yaw_;
+    j["gps"] = {lon_out, lat_out, alt_out};
+    j["gps_fix_type"] = gps_fix_type_;
+    return j.dump();
 }
 
 void BridgeMavlink::setupMavrosStreams(double rate) {

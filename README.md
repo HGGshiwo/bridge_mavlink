@@ -4,10 +4,14 @@
 
 依赖：
 
-```
+```bash
 sudo apt-get install ros-noetic-mavros
 sudo apt-get install ros-noetic-mavros-extras
 ```
+
+以及以下第三方库（在编译时会自动配置/获取）：
+- **Eigen3** (标准矩阵/代数库)
+- **nlohmann_json** (自动通过 CMake `FetchContent` 拉取)
 
 对于真机：
 
@@ -82,6 +86,32 @@ roslaunch bridge_mavlink bridge_mavlink.launch fcu_url:=udp://:14540@127.0.0.1:1
 #### Bridge Settings
 * `publish_rate` (default: `20.0`) — Output update rate in Hz.
 * `use_degrees` (default: `false`) — Convert Euler angles to degrees if set to `true`.
+* `odom_topic` (default: `/mavros/local_position/odom`) — The ROS topic to subscribe to for local positioning ENU data (must be of type `nav_msgs/Odometry`).
+
+### Switching Local Odometry Topic
+You can configure the source of local positioning ENU data using the `odom_topic` argument:
+
+- **Read from flight controller (default):**
+  ```bash
+  roslaunch bridge_mavlink bridge_mavlink.launch odom_topic:=/mavros/local_position/odom
+  ```
+- **Read from external local odometry (e.g. `/loc_base`):**
+  ```bash
+  roslaunch bridge_mavlink bridge_mavlink.launch odom_topic:=/loc_base
+  ```
+- **Any other odometry source:**
+  Pass the name of any topic publishing `nav_msgs/Odometry` messages (e.g., `odom_topic:=/my_custom/odometry`).
+
+---
+
+## Features
+
+### GPS Loss Protection (Forged GPS)
+When the GPS fix is lost or unavailable (`gps_fix_type < 3`), the node automatically estimates and publishes a forged GPS coordinate `[lon, lat, alt]`. This estimation is based on:
+1. The last known reliable GPS-ENU alignment datum (synchronized using the `DatumSynchronizer` while `gps_fix_type >= 3`).
+2. The current local ENU position offset relative to that datum.
+
+This ensures the `/dank/state` JSON output stream contains continuous, uninterrupted geographic coordinate estimates.
 
 ---
 
