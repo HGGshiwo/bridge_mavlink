@@ -137,12 +137,19 @@ FetchContent_Declare(
   GIT_TAG        v3.11.3
   GIT_SHALLOW    TRUE
 )
-FetchContent_MakeAvailable(nlohmann_json)
+FetchContent_Declare(
+  dk
+  GIT_REPOSITORY https://github.com/HGGshiwo/dk.git
+  GIT_TAG        main
+  GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json dk)
 
 add_executable(bridge_mavlink_node src/bridge_mavlink_node.cpp)
 target_link_libraries(bridge_mavlink_node
   ${catkin_LIBRARIES}
   nlohmann_json::nlohmann_json
+  dk
 )
 
 #############

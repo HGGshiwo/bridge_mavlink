@@ -6,6 +6,8 @@
 #include <sensor_msgs/NavSatFix.h>
 #include <mavros_msgs/GPSRAW.h>
 #include <mavros_msgs/State.h>
+#include <std_msgs/Float64.h>
+#include <nlohmann/json.hpp>
 #include <mutex>
 #include <string>
 #include "datum_synchronizer.hpp"
@@ -21,12 +23,15 @@ private:
     void localOdomCallback(const nav_msgs::Odometry::ConstPtr& msg);
     void globalGpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg);
     void gpsRawCallback(const mavros_msgs::GPSRAW::ConstPtr& msg);
+    void relAltCallback(const std_msgs::Float64::ConstPtr& msg);
     
     // Timer callback for publishing
     void publishTimerCallback(const ros::TimerEvent& event);
 
     // Helper to format JSON output
     std::string formatJsonString();
+    nlohmann::json getState();
+    nlohmann::json convertKey(nlohmann::json j);
 
     // Helper to request MAVROS streams and message intervals asynchronously
     void setupMavrosStreams(double rate);
@@ -36,7 +41,9 @@ private:
     ros::Subscriber sub_local_odom_;
     ros::Subscriber sub_global_gps_;
     ros::Subscriber sub_gps_raw_;
+    ros::Subscriber sub_rel_alt_;
     ros::Publisher pub_state_;
+    ros::Publisher pub_state_ws_;
     ros::Timer pub_timer_;
 
     // Mutex for thread safety (callbacks might run concurrently in multi-threaded spinners)
@@ -52,6 +59,14 @@ private:
     double lon_{0.0};
     double lat_{0.0};
     double alt_{0.0};
+    double x_vel_{0.0};
+    double y_vel_{0.0};
+    double x_vel_body_{0.0};
+    double y_vel_body_{0.0};
+    bool connected_{false}; // FCU
+    double rel_alt_{0.0};
+    int gps_nsats_{0};
+    std::string mode_{"Unknown"}; // FCU
     int gps_fix_type_{0}; // Default to 0 (No GPS)
 
     // Configuration flags
