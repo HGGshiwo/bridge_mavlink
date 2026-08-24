@@ -29,5 +29,18 @@
         <param name="publish_rate" value="$(arg publish_rate)"/>
         <param name="use_degrees" value="$(arg use_degrees)"/>
         <param name="odom_topic" value="$(arg odom_topic)"/>
+
+        <rosparam param="/bridge_routes/bridge_mavlink_state">
+            protocol: mqtt
+            direction: pub
+            ros_topic: /state
+            remote_uri: /state
+        </rosparam>
+        <rosparam param="/bridge_routes/bridge_mavlink_get_gps">
+            protocol: http
+            ros_topic: /get_gps
+            remote_uri: /get_gps
+        </rosparam>
+        
     </node>
 </launch>
