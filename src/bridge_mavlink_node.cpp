@@ -1,46 +1,57 @@
-#include "bridge_mavlink.hpp"
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2/LinearMath/Matrix3x3.h>
 #include <mavros_msgs/MessageInterval.h>
 #include <mavros_msgs/StreamRate.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <tf2/LinearMath/Quaternion.h>
+
+#include <cmath>
+#include <iomanip>
 #include <nlohmann/json.hpp>
 #include <sstream>
-#include <iomanip>
-#include <cmath>
 #include <thread>
+
+#include "bridge_mavlink.hpp"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-BridgeMavlink::BridgeMavlink(ros::NodeHandle& nh, ros::NodeHandle& pnh) {
+BridgeMavlink::BridgeMavlink(ros::NodeHandle &nh, ros::NodeHandle &pnh) {
     // Read configuration parameters
     pnh.param<double>("publish_rate", publish_rate_, 20.0);
     pnh.param<bool>("use_degrees", use_degrees_, false);
-    pnh.param<std::string>("odom_topic", odom_topic_, "/mavros/local_position/odom");
+    pnh.param<std::string>("odom_topic", odom_topic_,
+                           "/mavros/local_position/odom");
 
     // Enforce valid rate
     if (publish_rate_ <= 0.0) {
-        ROS_WARN("Invalid publish_rate specified: %f. Resetting to default 20.0 Hz.", publish_rate_);
+        ROS_WARN(
+            "Invalid publish_rate specified: %f. Resetting to default 20.0 Hz.",
+            publish_rate_);
         publish_rate_ = 20.0;
     }
 
     // Subscribe directly to standard mavros state and telemetry topics
-    sub_state_ = nh.subscribe("/mavros/state", 10, &BridgeMavlink::stateCallback, this);
-    sub_local_odom_ = nh.subscribe(odom_topic_, 10, &BridgeMavlink::localOdomCallback, this);
-    sub_global_gps_ = nh.subscribe("/mavros/global_position/global", 10, &BridgeMavlink::globalGpsCallback, this);
-    sub_gps_raw_ = nh.subscribe("/mavros/gpsstatus/gps1/raw", 10, &BridgeMavlink::gpsRawCallback, this);
+    sub_state_ =
+        nh.subscribe("/mavros/state", 10, &BridgeMavlink::stateCallback, this);
+    sub_local_odom_ =
+        nh.subscribe(odom_topic_, 10, &BridgeMavlink::localOdomCallback, this);
+    sub_global_gps_ = nh.subscribe("/mavros/global_position/global", 10,
+                                   &BridgeMavlink::globalGpsCallback, this);
+    sub_gps_raw_ = nh.subscribe("/mavros/gpsstatus/gps1/raw", 10,
+                                &BridgeMavlink::gpsRawCallback, this);
 
     // Advertise state output topic directly
     pub_state_ = nh.advertise<std_msgs::String>("/dank/state", 10);
 
     // Set up timer for fixed-rate publishing
-    pub_timer_ = nh.createTimer(ros::Duration(1.0 / publish_rate_), &BridgeMavlink::publishTimerCallback, this);
+    pub_timer_ = nh.createTimer(ros::Duration(1.0 / publish_rate_),
+                                &BridgeMavlink::publishTimerCallback, this);
 
-    ROS_INFO("BridgeMavlink initialized. Publishing on /dank/state at %.1f Hz.", publish_rate_);
+    ROS_INFO("BridgeMavlink initialized. Publishing on /dank/state at %.1f Hz.",
+             publish_rate_);
 }
 
-void BridgeMavlink::stateCallback(const mavros_msgs::State::ConstPtr& msg) {
+void BridgeMavlink::stateCallback(const mavros_msgs::State::ConstPtr &msg) {
     bool connected = msg->connected;
     bool was_connected = false;
     {
@@ -48,16 +59,18 @@ void BridgeMavlink::stateCallback(const mavros_msgs::State::ConstPtr& msg) {
         was_connected = fcu_connected_;
         fcu_connected_ = connected;
     }
-    
+
     if (connected && !was_connected) {
-        ROS_INFO("FCU connected. Requesting stream rates and message intervals...");
-        std::thread(&BridgeMavlink::setupMavrosStreams, this, publish_rate_).detach();
+        ROS_INFO(
+            "FCU connected. Requesting stream rates and message intervals...");
+        std::thread(&BridgeMavlink::setupMavrosStreams, this, publish_rate_)
+            .detach();
     }
 }
 
-void BridgeMavlink::localOdomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
+void BridgeMavlink::localOdomCallback(const nav_msgs::Odometry::ConstPtr &msg) {
     std::lock_guard<std::mutex> lock(data_mutex_);
-    
+
     // pos_enu
     pos_x_ = msg->pose.pose.position.x;
     pos_y_ = msg->pose.pose.position.y;
@@ -65,11 +78,8 @@ void BridgeMavlink::localOdomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
 
     // Convert orientation quaternion to Euler angles (roll, pitch, yaw)
     tf2::Quaternion q(
-        msg->pose.pose.orientation.x,
-        msg->pose.pose.orientation.y,
-        msg->pose.pose.orientation.z,
-        msg->pose.pose.orientation.w
-    );
+        msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
+        msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
     tf2::Matrix3x3 m(q);
     double r, p, y;
     m.getRPY(r, p, y);
@@ -94,10 +104,10 @@ void BridgeMavlink::localOdomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
     }
 }
 
-
-void BridgeMavlink::globalGpsCallback(const sensor_msgs::NavSatFix::ConstPtr& msg) {
+void BridgeMavlink::globalGpsCallback(
+    const sensor_msgs::NavSatFix::ConstPtr &msg) {
     std::lock_guard<std::mutex> lock(data_mutex_);
-    
+
     // gps: [lon, lat, alt]
     lon_ = msg->longitude;
     lat_ = msg->latitude;
@@ -115,14 +125,14 @@ void BridgeMavlink::globalGpsCallback(const sensor_msgs::NavSatFix::ConstPtr& ms
     }
 }
 
-void BridgeMavlink::gpsRawCallback(const mavros_msgs::GPSRAW::ConstPtr& msg) {
+void BridgeMavlink::gpsRawCallback(const mavros_msgs::GPSRAW::ConstPtr &msg) {
     std::lock_guard<std::mutex> lock(data_mutex_);
-    
+
     // gps_fix_type
     gps_fix_type_ = msg->fix_type;
 }
 
-void BridgeMavlink::publishTimerCallback(const ros::TimerEvent& event) {
+void BridgeMavlink::publishTimerCallback(const ros::TimerEvent &event) {
     std_msgs::String out_msg;
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
@@ -137,17 +147,18 @@ std::string BridgeMavlink::formatJsonString() {
     double alt_out = alt_;
 
     if (gps_fix_type_ < 3 && last_reliable_datum_.has_value()) {
-        const double R_e = 6378137.0; // WGS-84 equatorial radius
+        const double R_e = 6378137.0;  // WGS-84 equatorial radius
         const double PI = 3.14159265358979323846;
-        const auto& datum = last_reliable_datum_.value();
-        
+        const auto &datum = last_reliable_datum_.value();
+
         double lat_ref_rad = datum.gps.y() * PI / 180.0;
         double delta_x = pos_x_ - datum.enu.x();
         double delta_y = pos_y_ - datum.enu.y();
         double delta_z = pos_z_ - datum.enu.z();
 
         lat_out = datum.gps.y() + (delta_y / R_e) * (180.0 / PI);
-        lon_out = datum.gps.x() + (delta_x / (R_e * std::cos(lat_ref_rad))) * (180.0 / PI);
+        lon_out = datum.gps.x() +
+                  (delta_x / (R_e * std::cos(lat_ref_rad))) * (180.0 / PI);
         alt_out = datum.gps.z() + delta_z;
     }
 
@@ -163,51 +174,73 @@ std::string BridgeMavlink::formatJsonString() {
 
 void BridgeMavlink::setupMavrosStreams(double rate) {
     ros::NodeHandle nh;
-    
-    // Wait for the MAVROS services to become available (e.g. timeout after 30 seconds)
+
+    // Wait for the MAVROS services to become available (e.g. timeout after 30
+    // seconds)
     ROS_INFO("setupMavrosStreams: Waiting for MAVROS services to start...");
-    
-    if (ros::service::waitForService("/mavros/set_stream_rate", ros::Duration(30.0))) {
-        ros::ServiceClient client = nh.serviceClient<mavros_msgs::StreamRate>("/mavros/set_stream_rate");
+
+    if (ros::service::waitForService("/mavros/set_stream_rate",
+                                     ros::Duration(30.0))) {
+        ros::ServiceClient client = nh.serviceClient<mavros_msgs::StreamRate>(
+            "/mavros/set_stream_rate");
         mavros_msgs::StreamRate srv;
-        srv.request.stream_id = 0; // STREAM_ALL
+        srv.request.stream_id = 0;  // STREAM_ALL
         srv.request.message_rate = static_cast<uint16_t>(rate);
         srv.request.on_off = true;
         if (client.call(srv)) {
-            ROS_INFO("Successfully requested all MAVROS streams at %.1f Hz via set_stream_rate.", rate);
+            ROS_INFO(
+                "Successfully requested all MAVROS streams at %.1f Hz via "
+                "set_stream_rate.",
+                rate);
         } else {
             ROS_WARN("Failed to call MAVROS service /mavros/set_stream_rate.");
         }
     } else {
-        ROS_WARN("MAVROS service /mavros/set_stream_rate not available (timeout).");
+        ROS_WARN(
+            "MAVROS service /mavros/set_stream_rate not available (timeout).");
     }
 
-    if (ros::service::waitForService("/mavros/set_message_interval", ros::Duration(10.0))) {
-        ros::ServiceClient client = nh.serviceClient<mavros_msgs::MessageInterval>("/mavros/set_message_interval");
-        
+    if (ros::service::waitForService("/mavros/set_message_interval",
+                                     ros::Duration(10.0))) {
+        ros::ServiceClient client =
+            nh.serviceClient<mavros_msgs::MessageInterval>(
+                "/mavros/set_message_interval");
+
         auto set_interval = [&](uint32_t msg_id, float msg_rate) {
             mavros_msgs::MessageInterval srv;
             srv.request.message_id = msg_id;
             srv.request.message_rate = msg_rate;
             if (client.call(srv) && srv.response.success) {
-                ROS_INFO("Successfully set message interval for message ID %u to %.1f Hz.", msg_id, msg_rate);
+                ROS_INFO(
+                    "Successfully set message interval for message ID %u to "
+                    "%.1f Hz.",
+                    msg_id, msg_rate);
             } else {
-                ROS_WARN("Failed to set message interval for message ID %u.", msg_id);
+                ROS_WARN("Failed to set message interval for message ID %u.",
+                         msg_id);
             }
         };
 
         // Call the service for attitude, position, and rangefinder as requested
-        set_interval(30, static_cast<float>(rate));  // MAVLINK_MSG_ID_ATTITUDE (attitude)
-        set_interval(32, static_cast<float>(rate));  // MAVLINK_MSG_ID_LOCAL_POSITION_NED (position)
-        set_interval(132, static_cast<float>(rate)); // MAVLINK_MSG_ID_DISTANCE_SENSOR (rangefinder)
+        set_interval(30, static_cast<float>(
+                             rate));  // MAVLINK_MSG_ID_ATTITUDE (attitude)
+        set_interval(
+            32, static_cast<float>(
+                    rate));  // MAVLINK_MSG_ID_LOCAL_POSITION_NED (position)
+        set_interval(
+            132,
+            static_cast<float>(
+                rate));  // MAVLINK_MSG_ID_DISTANCE_SENSOR (rangefinder)
     } else {
-        ROS_WARN("MAVROS service /mavros/set_message_interval not available (timeout).");
+        ROS_WARN(
+            "MAVROS service /mavros/set_message_interval not available "
+            "(timeout).");
     }
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     ros::init(argc, argv, "bridge_mavlink_node");
-    
+
     ros::NodeHandle nh;
     ros::NodeHandle pnh("~");
 
