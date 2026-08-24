@@ -2,14 +2,15 @@
 #include <mavros_msgs/StreamRate.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Vector3.h>
 
 #include <cmath>
 #include <iomanip>
-#include <nlohmann/json.hpp>
 #include <sstream>
 #include <thread>
 
 #include "bridge_mavlink.hpp"
+#include "std_msgs/String.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -39,9 +40,12 @@ BridgeMavlink::BridgeMavlink(ros::NodeHandle &nh, ros::NodeHandle &pnh) {
                                    &BridgeMavlink::globalGpsCallback, this);
     sub_gps_raw_ = nh.subscribe("/mavros/gpsstatus/gps1/raw", 10,
                                 &BridgeMavlink::gpsRawCallback, this);
+    sub_rel_alt_ = nh.subscribe("/mavros/global_position/rel_alt", 10,
+                                &BridgeMavlink::relAltCallback, this);
 
     // Advertise state output topic directly
     pub_state_ = nh.advertise<std_msgs::String>("/dank/state", 10);
+    pub_state_ws_ = nh.advertise<std_msgs::String>("/dank/state_ws", 10);
 
     // Set up timer for fixed-rate publishing
     pub_timer_ = nh.createTimer(ros::Duration(1.0 / publish_rate_),
@@ -58,6 +62,8 @@ void BridgeMavlink::stateCallback(const mavros_msgs::State::ConstPtr &msg) {
         std::lock_guard<std::mutex> lock(data_mutex_);
         was_connected = fcu_connected_;
         fcu_connected_ = connected;
+        connected_ = connected;
+        mode_ = msg->mode;
     }
 
     if (connected && !was_connected) {
@@ -93,6 +99,18 @@ void BridgeMavlink::localOdomCallback(const nav_msgs::Odometry::ConstPtr &msg) {
         pitch_ = p;
         yaw_ = y;
     }
+
+    yaw_ = -yaw_ + M_PI * 0.5;  // ENU -> NED
+
+    // Update body and global velocities
+    x_vel_body_ = msg->twist.twist.linear.x;
+    y_vel_body_ = msg->twist.twist.linear.y;
+
+    tf2::Vector3 v_body(msg->twist.twist.linear.x, msg->twist.twist.linear.y,
+                        msg->twist.twist.linear.z);
+    tf2::Vector3 v_global = tf2::quatRotate(q, v_body);
+    x_vel_ = v_global.getX();
+    y_vel_ = v_global.getY();
 
     // Push to datum synchronizer
     double time_now = msg->header.stamp.toSec();
@@ -130,18 +148,31 @@ void BridgeMavlink::gpsRawCallback(const mavros_msgs::GPSRAW::ConstPtr &msg) {
 
     // gps_fix_type
     gps_fix_type_ = msg->fix_type;
+    gps_nsats_ = msg->satellites_visible;
+}
+
+void BridgeMavlink::relAltCallback(const std_msgs::Float64::ConstPtr &msg) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    rel_alt_ = msg->data;
 }
 
 void BridgeMavlink::publishTimerCallback(const ros::TimerEvent &event) {
-    std_msgs::String out_msg;
+    nlohmann::json state_mqtt;
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
-        out_msg.data = formatJsonString();
+        state_mqtt = getState();
     }
+
+    std_msgs::String out_msg;
+    out_msg.data = state_mqtt.dump();
     pub_state_.publish(out_msg);
+
+    std_msgs::String out_msg_ws;
+    out_msg_ws.data = convertKey(state_mqtt).dump();
+    pub_state_ws_.publish(out_msg_ws);
 }
 
-std::string BridgeMavlink::formatJsonString() {
+nlohmann::json BridgeMavlink::getState() {
     double lon_out = lon_;
     double lat_out = lat_;
     double alt_out = alt_;
@@ -169,7 +200,34 @@ std::string BridgeMavlink::formatJsonString() {
     j["yaw"] = yaw_;
     j["gps"] = {lon_out, lat_out, alt_out};
     j["gps_fix_type"] = gps_fix_type_;
-    return j.dump();
+    j["x_vel"] = x_vel_;
+    j["y_vel"] = y_vel_;
+    j["x_vel_body"] = x_vel_body_;
+    j["y_vel_body"] = y_vel_body_;
+    j["connected"] = connected_;  // FCU
+    j["rel_alt"] = rel_alt_;
+    j["gps_nsats"] = gps_nsats_;
+    j["mode"] = mode_;  // FCU
+    return j;
+}
+
+std::map<std::string, std::string> key_map{
+    {"gps", "gpsLocation"},     {"x_vel", "xVel"},
+    {"y_vel", "yVel"},          {"x_vel_body", "xVelBody"},
+    {"y_vel_body", "yVelBody"}, {"rel_alt", "relAlt"},
+    {"gps_nsats", "gpsNsats"}};
+
+nlohmann::json BridgeMavlink::convertKey(nlohmann::json j) {
+    nlohmann::json out = nlohmann::json::object();
+    for (auto &el : j.items()) {
+        auto it = key_map.find(el.key());
+        if (it != key_map.end()) {
+            out[it->second] = el.value();
+        } else {
+            out[el.key()] = el.value();
+        }
+    }
+    return out;
 }
 
 void BridgeMavlink::setupMavrosStreams(double rate) {

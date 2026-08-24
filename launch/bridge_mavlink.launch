@@ -1,6 +1,6 @@
 <launch>
     <!-- MAVROS configuration arguments -->
-    <arg name="fcu_url" default="tcp://:5760@115200"/>
+    <arg name="fcu_url" default="$(optenv FCU_URL tcp://127.0.0.1:5760)"/>
     <arg name="gcs_url" default=""/>
     <arg name="tgt_system" default="1"/>
     <arg name="tgt_component" default="1"/>
