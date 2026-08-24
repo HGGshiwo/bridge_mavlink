@@ -51,6 +51,9 @@ BridgeMavlink::BridgeMavlink(ros::NodeHandle &nh, ros::NodeHandle &pnh) {
     pub_timer_ = nh.createTimer(ros::Duration(1.0 / publish_rate_),
                                 &BridgeMavlink::publishTimerCallback, this);
 
+    srv_get_gps_ =
+        nh.advertiseService("get_gps", &BridgeMavlink::getGpsCallback, this);
+
     ROS_INFO("BridgeMavlink initialized. Publishing on /dank/state at %.1f Hz.",
              publish_rate_);
 }
@@ -154,6 +157,43 @@ void BridgeMavlink::gpsRawCallback(const mavros_msgs::GPSRAW::ConstPtr &msg) {
 void BridgeMavlink::relAltCallback(const std_msgs::Float64::ConstPtr &msg) {
     std::lock_guard<std::mutex> lock(data_mutex_);
     rel_alt_ = msg->data;
+}
+
+bool BridgeMavlink::getGpsCallback(bridge_routes::StringSrv::Request &req,
+                                   bridge_routes::StringSrv::Response &res) {
+    double lon_out = 0.0;
+    double lat_out = 0.0;
+    double alt_out = 0.0;
+
+    {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        lon_out = lon_;
+        lat_out = lat_;
+        alt_out = alt_;
+
+        if (gps_fix_type_ < 3 && last_reliable_datum_.has_value()) {
+            const double R_e = 6378137.0;  // WGS-84 equatorial radius
+            const double PI = 3.14159265358979323846;
+            const auto &datum = last_reliable_datum_.value();
+
+            double lat_ref_rad = datum.gps.y() * PI / 180.0;
+            double delta_x = pos_x_ - datum.enu.x();
+            double delta_y = pos_y_ - datum.enu.y();
+            double delta_z = pos_z_ - datum.enu.z();
+
+            lat_out = datum.gps.y() + (delta_y / R_e) * (180.0 / PI);
+            lon_out = datum.gps.x() +
+                      (delta_x / (R_e * std::cos(lat_ref_rad))) * (180.0 / PI);
+            alt_out = datum.gps.z() + delta_z;
+        }
+    }
+
+    nlohmann::json response_json;
+    response_json["msg"] = {lon_out, lat_out, alt_out};
+    response_json["status"] = "success";
+    res.response = response_json.dump();
+
+    return true;
 }
 
 void BridgeMavlink::publishTimerCallback(const ros::TimerEvent &event) {

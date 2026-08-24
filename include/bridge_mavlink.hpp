@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bridge_routes/StringSrv.h>
 #include <mavros_msgs/GPSRAW.h>
 #include <mavros_msgs/State.h>
 #include <nav_msgs/Odometry.h>
@@ -26,6 +27,8 @@ class BridgeMavlink {
     void globalGpsCallback(const sensor_msgs::NavSatFix::ConstPtr &msg);
     void gpsRawCallback(const mavros_msgs::GPSRAW::ConstPtr &msg);
     void relAltCallback(const std_msgs::Float64::ConstPtr &msg);
+    bool getGpsCallback(bridge_routes::StringSrv::Request &req,
+                        bridge_routes::StringSrv::Response &res);
 
     // Timer callback for publishing
     void publishTimerCallback(const ros::TimerEvent &event);
@@ -48,6 +51,7 @@ class BridgeMavlink {
     ros::Publisher pub_state_;
     ros::Publisher pub_state_ws_;
     ros::Timer pub_timer_;
+    ros::ServiceServer srv_get_gps_;
 
     // Mutex for thread safety (callbacks might run concurrently in
     // multi-threaded spinners)

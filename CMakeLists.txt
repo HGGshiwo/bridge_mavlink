@@ -18,6 +18,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   tf2
   tf2_geometry_msgs
+  bridge_routes
 )
 
 find_package(Eigen3 REQUIRED)
@@ -113,7 +114,7 @@ find_package(Eigen3 REQUIRED)
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp geometry_msgs sensor_msgs nav_msgs mavros_msgs std_msgs tf2 tf2_geometry_msgs
+  CATKIN_DEPENDS roscpp geometry_msgs sensor_msgs nav_msgs mavros_msgs std_msgs tf2 tf2_geometry_msgs bridge_routes
 )
 
 ###########
@@ -146,6 +147,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json dk)
 
 add_executable(bridge_mavlink_node src/bridge_mavlink_node.cpp)
+add_dependencies(bridge_mavlink_node ${catkin_EXPORTED_TARGETS})
 target_link_libraries(bridge_mavlink_node
   ${catkin_LIBRARIES}
   nlohmann_json::nlohmann_json
