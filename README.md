@@ -19,7 +19,7 @@ sudo apt-get install ros-noetic-mavros-extras
 roslaunch bridge_mavlink bridge_mavlink.launch fcu_url:=/dev/ttyS5:115200
 ```
 
-ROS Noetic C++ node that bridges telemetry data from MAVROS, formatting it into a JSON-serialized string and publishing it on the `/dank/state` topic.
+ROS Noetic C++ node that bridges telemetry data from MAVROS, formatting it into a JSON-serialized string and publishing it on the `/dank/status` topic.
 
 ## Telemetry Field Mapping
 
@@ -111,7 +111,7 @@ When the GPS fix is lost or unavailable (`gps_fix_type < 3`), the node automatic
 1. The last known reliable GPS-ENU alignment datum (synchronized using the `DatumSynchronizer` while `gps_fix_type >= 3`).
 2. The current local ENU position offset relative to that datum.
 
-This ensures the `/dank/state` JSON output stream contains continuous, uninterrupted geographic coordinate estimates.
+This ensures the `/dank/status` JSON output stream contains continuous, uninterrupted geographic coordinate estimates.
 
 ---
 
@@ -120,5 +120,5 @@ This ensures the `/dank/state` JSON output stream contains continuous, uninterru
 To verify that the bridge is running correctly and producing the JSON payloads, run:
 
 ```bash
-rostopic echo /dank/state
+rostopic echo /dank/status
 ```

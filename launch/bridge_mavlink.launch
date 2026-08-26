@@ -6,7 +6,7 @@
     <arg name="tgt_component" default="1"/>
     <arg name="log_output" default="screen"/>
     <arg name="fcu_protocol" default="v2.0"/>
-    <arg name="respawn_mavros" default="false"/>
+    <arg name="respawn_mavros" default="true"/>
     
     <!-- Include the standard MAVROS launch file -->
     <include file="$(find mavros)/launch/apm.launch">
@@ -32,9 +32,15 @@
 
         <rosparam param="/bridge_routes/bridge_mavlink_state">
             protocol: mqtt
-            direction: pub
-            ros_topic: /state
+            topic_type: pub_state
+            ros_topic: /dank/status
             remote_uri: /state
+        </rosparam>
+        <rosparam param="/bridge_routes/bridge_mavlink_state_ws">
+            protocol: ws
+            topic_type: pub_state
+            ros_topic: /dank/status_ws
+            remote_uri: /ws
         </rosparam>
         <rosparam param="/bridge_routes/bridge_mavlink_get_gps">
             protocol: http
@@ -43,4 +49,7 @@
         </rosparam>
         
     </node>
+
+    <!-- Launch the status_ws_bridge node for websocket decoupling -->
+    <node pkg="bridge_mavlink" type="status_ws_bridge_node" name="status_ws_bridge_node" output="screen" />
 </launch>

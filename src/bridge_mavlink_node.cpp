@@ -44,8 +44,7 @@ BridgeMavlink::BridgeMavlink(ros::NodeHandle &nh, ros::NodeHandle &pnh) {
                                 &BridgeMavlink::relAltCallback, this);
 
     // Advertise state output topic directly
-    pub_state_ = nh.advertise<std_msgs::String>("/dank/state", 10);
-    pub_state_ws_ = nh.advertise<std_msgs::String>("/dank/state_ws", 10);
+    pub_state_ = nh.advertise<std_msgs::String>("/dank/status", 10);
 
     // Set up timer for fixed-rate publishing
     pub_timer_ = nh.createTimer(ros::Duration(1.0 / publish_rate_),
@@ -54,8 +53,9 @@ BridgeMavlink::BridgeMavlink(ros::NodeHandle &nh, ros::NodeHandle &pnh) {
     srv_get_gps_ =
         nh.advertiseService("get_gps", &BridgeMavlink::getGpsCallback, this);
 
-    ROS_INFO("BridgeMavlink initialized. Publishing on /dank/state at %.1f Hz.",
-             publish_rate_);
+    ROS_INFO(
+        "BridgeMavlink initialized. Publishing on /dank/status at %.1f Hz.",
+        publish_rate_);
 }
 
 void BridgeMavlink::stateCallback(const mavros_msgs::State::ConstPtr &msg) {
@@ -206,10 +206,6 @@ void BridgeMavlink::publishTimerCallback(const ros::TimerEvent &event) {
     std_msgs::String out_msg;
     out_msg.data = state_mqtt.dump();
     pub_state_.publish(out_msg);
-
-    std_msgs::String out_msg_ws;
-    out_msg_ws.data = convertKey(state_mqtt).dump();
-    pub_state_ws_.publish(out_msg_ws);
 }
 
 nlohmann::json BridgeMavlink::getState() {
@@ -249,25 +245,6 @@ nlohmann::json BridgeMavlink::getState() {
     j["gps_nsats"] = gps_nsats_;
     j["mode"] = mode_;  // FCU
     return j;
-}
-
-std::map<std::string, std::string> key_map{
-    {"gps", "gpsLocation"},     {"x_vel", "xVel"},
-    {"y_vel", "yVel"},          {"x_vel_body", "xVelBody"},
-    {"y_vel_body", "yVelBody"}, {"rel_alt", "relAlt"},
-    {"gps_nsats", "gpsNsats"}};
-
-nlohmann::json BridgeMavlink::convertKey(nlohmann::json j) {
-    nlohmann::json out = nlohmann::json::object();
-    for (auto &el : j.items()) {
-        auto it = key_map.find(el.key());
-        if (it != key_map.end()) {
-            out[it->second] = el.value();
-        } else {
-            out[el.key()] = el.value();
-        }
-    }
-    return out;
 }
 
 void BridgeMavlink::setupMavrosStreams(double rate) {

@@ -36,9 +36,6 @@ class BridgeMavlink {
     // 获得当前状态
     nlohmann::json getState();
 
-    // 转为云端格式
-    nlohmann::json convertKey(nlohmann::json);
-
     // Helper to request MAVROS streams and message intervals asynchronously
     void setupMavrosStreams(double rate);
 
@@ -49,7 +46,6 @@ class BridgeMavlink {
     ros::Subscriber sub_gps_raw_;
     ros::Subscriber sub_rel_alt_;
     ros::Publisher pub_state_;
-    ros::Publisher pub_state_ws_;
     ros::Timer pub_timer_;
     ros::ServiceServer srv_get_gps_;
 

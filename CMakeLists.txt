@@ -154,6 +154,13 @@ target_link_libraries(bridge_mavlink_node
   dk
 )
 
+add_executable(status_ws_bridge_node src/status_ws_bridge_node.cpp)
+add_dependencies(status_ws_bridge_node ${catkin_EXPORTED_TARGETS})
+target_link_libraries(status_ws_bridge_node
+  ${catkin_LIBRARIES}
+  nlohmann_json::nlohmann_json
+)
+
 #############
 ## Install ##
 #############
